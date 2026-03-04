@@ -31,6 +31,12 @@ import math
 from pathlib import Path
 from scipy import ndimage
 
+# Windows: automatická detekce Tesseract OCR v běžném umístění
+if sys.platform == "win32":
+    _win_tesseract = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+    if _win_tesseract.is_file():
+        pytesseract.pytesseract.tesseract_cmd = str(_win_tesseract)
+
 
 # ---------------------------------------------------------------------------
 # 1.  STROKE WIDTH TRANSFORM
