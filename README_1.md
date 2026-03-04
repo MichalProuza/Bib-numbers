@@ -80,7 +80,7 @@ Po spuštění se vytvoří složka `test_race.out/` s těmito soubory:
 - **`annotated.jpg`** – původní fotka se zelenými rámečky kolem detekovaných čísel
 - **`bib-*.png`** – výřezy jednotlivých startovních čísel
 
-Otevři `test_race.out/annotated.jpg` a ověř, že čísla 38, 164 a 775 jsou správně označena.
+Otevři `test_race.out/annotated.jpg` a ověř, že detekovaná čísla jsou správně označena.
 
 ### 4. Vyzkoušej debug mód
 
