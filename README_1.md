@@ -47,6 +47,68 @@ python3 bibnumber.py zavod.jpg --debug
 
 ---
 
+## Jak to vyzkoušet
+
+### 1. Nainstaluj závislosti
+
+```bash
+# Python balíčky
+pip install opencv-python pytesseract scipy numpy
+
+# Tesseract OCR (Ubuntu/Debian)
+sudo apt install tesseract-ocr
+```
+
+### 2. Spusť detekci na testovací fotce
+
+V repozitáři je přiložený testovací obrázek `test_race.jpg` se třemi běžci. Spusť:
+
+```bash
+python3 bibnumber.py test_race.jpg
+```
+
+Očekávaný výstup v konzoli:
+
+```
+Nalezená startovní čísla: [38, 164, 775]
+```
+
+### 3. Zkontroluj výsledky
+
+Po spuštění se vytvoří složka `test_race.out/` s těmito soubory:
+
+- **`annotated.jpg`** – původní fotka se zelenými rámečky kolem detekovaných čísel
+- **`bib-*.png`** – výřezy jednotlivých startovních čísel
+
+Otevři `test_race.out/annotated.jpg` a ověř, že čísla 38, 164 a 775 jsou správně označena.
+
+### 4. Vyzkoušej debug mód
+
+```bash
+python3 bibnumber.py test_race.jpg --debug
+```
+
+Ve výstupní složce pak najdeš i mezikroky zpracování (`0_input.jpg`, `1_candidates.jpg`, `2_groups.jpg`), které ukazují, jak pipeline postupně detekuje a seskupuje znaky.
+
+### 5. Vyzkoušej vlastní fotku
+
+```bash
+python3 bibnumber.py moje_fotka.jpg --out vysledky/
+```
+
+Pro nejlepší výsledky použij fotku, kde jsou startovní čísla čitelná pouhým okem (alespoň 1000×700 px, bez silného rozmazání).
+
+### 6. Vyzkoušej jako Python modul
+
+```python
+from bibnumber import detect_bibs
+
+cisla = detect_bibs("test_race.jpg")
+print(cisla)  # [38, 164, 775]
+```
+
+---
+
 ## Výstup
 
 Skript vytvoří složku `{jmeno_fotky}.out/` (nebo zadanou `--out` složku) s těmito soubory:
