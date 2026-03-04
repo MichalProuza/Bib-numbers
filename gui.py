@@ -7,9 +7,9 @@ a program zobrazí nalezená čísla u každé fotky.
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import threading
-import shutil
 from pathlib import Path
 
+import pytesseract
 from bibnumber import detect_bibs
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
@@ -22,7 +22,8 @@ class BibGUI:
         self.root.geometry("700x500")
         self.root.minsize(500, 350)
 
-        if not shutil.which("tesseract"):
+        tesseract_path = Path(pytesseract.pytesseract.tesseract_cmd)
+        if not tesseract_path.is_file():
             messagebox.showwarning(
                 "Tesseract nenalezen",
                 "Tesseract OCR není nainstalovaný nebo není v PATH.\n\n"
