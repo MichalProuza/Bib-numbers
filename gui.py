@@ -5,8 +5,9 @@ a program zobrazí nalezená čísla u každé fotky.
 """
 
 import tkinter as tk
-from tkinter import ttk, filedialog
+from tkinter import ttk, filedialog, messagebox
 import threading
+import shutil
 from pathlib import Path
 
 from bibnumber import detect_bibs
@@ -20,6 +21,14 @@ class BibGUI:
         self.root.title("Detekce startovních čísel")
         self.root.geometry("700x500")
         self.root.minsize(500, 350)
+
+        if not shutil.which("tesseract"):
+            messagebox.showwarning(
+                "Tesseract nenalezen",
+                "Tesseract OCR není nainstalovaný nebo není v PATH.\n\n"
+                "Windows: stáhni z github.com/UB-Mannheim/tesseract/wiki\n"
+                "a přidej cestu (např. C:\\Program Files\\Tesseract-OCR) do PATH."
+            )
 
         self._build_ui()
 
@@ -87,12 +96,13 @@ class BibGUI:
 
             try:
                 numbers = detect_bibs(str(photo))
+                display = ", ".join(str(n) for n in numbers) if numbers else "–"
             except Exception as e:
-                numbers = []
-                print(f"[CHYBA] {photo.name}: {e}")
+                display = f"[CHYBA] {e}"
 
-            display = ", ".join(str(n) for n in numbers) if numbers else "–"
-            self.root.after(0, self.tree.insert, "", tk.END, None, {"values": (photo.name, display)})
+            self.root.after(0, lambda name=photo.name, d=display: self.tree.insert(
+                "", tk.END, values=(name, d)
+            ))
 
         self.root.after(
             0, self.status_var.set, f"Hotovo – zpracováno {len(photos)} fotek."
