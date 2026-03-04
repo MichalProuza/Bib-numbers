@@ -445,18 +445,37 @@ def detect_bibs(image_path: str, out_dir: str = None, debug: bool = False):
 # ---------------------------------------------------------------------------
 
 def check_tesseract():
-    """Ověří, že Tesseract je nainstalován a dostupný v PATH."""
-    if shutil.which("tesseract") is None:
-        print(
-            "[CHYBA] Tesseract OCR nebyl nalezen v PATH.\n"
-            "Bez Tesseractu nelze rozpoznávat čísla.\n\n"
-            "Instalace:\n"
-            "  Windows:  stáhněte z https://github.com/UB-Mannheim/tesseract/wiki\n"
-            "            a přidejte instalační složku do systémové proměnné PATH\n"
-            "  macOS:    brew install tesseract\n"
-            "  Linux:    sudo apt install tesseract-ocr\n"
-        )
-        sys.exit(1)
+    """Ověří, že Tesseract je nainstalován a dostupný v PATH.
+    Na Windows zkusí i běžné instalační cesty."""
+    if shutil.which("tesseract") is not None:
+        return
+
+    # Na Windows zkusit běžné instalační cesty
+    if sys.platform == "win32":
+        common_paths = [
+            os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"),
+                         "Tesseract-OCR", "tesseract.exe"),
+            os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+                         "Tesseract-OCR", "tesseract.exe"),
+            os.path.join(os.environ.get("LOCALAPPDATA", ""),
+                         "Programs", "Tesseract-OCR", "tesseract.exe"),
+        ]
+        for path in common_paths:
+            if path and os.path.isfile(path):
+                pytesseract.pytesseract.tesseract_cmd = path
+                print(f"[INFO] Tesseract nalezen: {path}")
+                return
+
+    print(
+        "[CHYBA] Tesseract OCR nebyl nalezen.\n"
+        "Bez Tesseractu nelze rozpoznávat čísla.\n\n"
+        "Instalace:\n"
+        "  Windows:  stáhněte z https://github.com/UB-Mannheim/tesseract/wiki\n"
+        "            a přidejte instalační složku do systémové proměnné PATH\n"
+        "  macOS:    brew install tesseract\n"
+        "  Linux:    sudo apt install tesseract-ocr\n"
+    )
+    sys.exit(1)
 
 
 def main():
