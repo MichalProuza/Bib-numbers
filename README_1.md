@@ -70,7 +70,7 @@ python3 bibnumber.py test_race.jpg
 Očekávaný výstup v konzoli:
 
 ```
-Nalezená startovní čísla: [58, 64, 164, 775]
+Nalezená startovní čísla: [38, 164, 775]
 ```
 
 ### 3. Zkontroluj výsledky
@@ -104,7 +104,7 @@ Pro nejlepší výsledky použij fotku, kde jsou startovní čísla čitelná po
 from bibnumber import detect_bibs
 
 cisla = detect_bibs("test_race.jpg")
-print(cisla)  # [58, 64, 164, 775]
+print(cisla)  # [38, 164, 775]
 ```
 
 ---
