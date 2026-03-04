@@ -70,7 +70,7 @@ python3 bibnumber.py test_race.jpg
 Očekávaný výstup v konzoli:
 
 ```
-Nalezená startovní čísla: [38, 164, 775]
+Nalezená startovní čísla: [58, 64, 164, 775]
 ```
 
 ### 3. Zkontroluj výsledky
@@ -80,7 +80,7 @@ Po spuštění se vytvoří složka `test_race.out/` s těmito soubory:
 - **`annotated.jpg`** – původní fotka se zelenými rámečky kolem detekovaných čísel
 - **`bib-*.png`** – výřezy jednotlivých startovních čísel
 
-Otevři `test_race.out/annotated.jpg` a ověř, že čísla 38, 164 a 775 jsou správně označena.
+Otevři `test_race.out/annotated.jpg` a ověř, že detekovaná čísla jsou správně označena.
 
 ### 4. Vyzkoušej debug mód
 
@@ -104,7 +104,7 @@ Pro nejlepší výsledky použij fotku, kde jsou startovní čísla čitelná po
 from bibnumber import detect_bibs
 
 cisla = detect_bibs("test_race.jpg")
-print(cisla)  # [38, 164, 775]
+print(cisla)  # [58, 64, 164, 775]
 ```
 
 ---
