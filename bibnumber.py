@@ -24,10 +24,12 @@ Použití:
 import cv2
 import numpy as np
 import pytesseract
+from pytesseract import TesseractNotFoundError
 import os
 import sys
 import argparse
 import math
+import shutil
 from pathlib import Path
 from scipy import ndimage
 
@@ -288,6 +290,7 @@ def preprocess_for_ocr(roi: np.ndarray) -> np.ndarray:
 def ocr_digits(roi_gray: np.ndarray) -> str:
     """
     Spustí Tesseract v módu pro číslice, vrátí string číslic.
+    Pokud Tesseract není nainstalován, vrátí prázdný řetězec.
     """
     img = preprocess_for_ocr(roi_gray)
 
@@ -296,7 +299,15 @@ def ocr_digits(roi_gray: np.ndarray) -> str:
         '--psm 7 '          # Single text line
         '-c tessedit_char_whitelist=0123456789'
     )
-    text = pytesseract.image_to_string(img, config=config)
+    try:
+        text = pytesseract.image_to_string(img, config=config)
+    except TesseractNotFoundError:
+        raise TesseractNotFoundError(
+            "Tesseract OCR nebyl nalezen. Nainstalujte jej:\n"
+            "  Windows:  https://github.com/UB-Mannheim/tesseract/wiki\n"
+            "  macOS:    brew install tesseract\n"
+            "  Linux:    sudo apt install tesseract-ocr"
+        )
     # Ponech jen číslice
     digits = ''.join(c for c in text if c.isdigit())
     return digits
@@ -433,6 +444,21 @@ def detect_bibs(image_path: str, out_dir: str = None, debug: bool = False):
 # 6.  CLI
 # ---------------------------------------------------------------------------
 
+def check_tesseract():
+    """Ověří, že Tesseract je nainstalován a dostupný v PATH."""
+    if shutil.which("tesseract") is None:
+        print(
+            "[CHYBA] Tesseract OCR nebyl nalezen v PATH.\n"
+            "Bez Tesseractu nelze rozpoznávat čísla.\n\n"
+            "Instalace:\n"
+            "  Windows:  stáhněte z https://github.com/UB-Mannheim/tesseract/wiki\n"
+            "            a přidejte instalační složku do systémové proměnné PATH\n"
+            "  macOS:    brew install tesseract\n"
+            "  Linux:    sudo apt install tesseract-ocr\n"
+        )
+        sys.exit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Detekce startovních čísel ze závodních fotek",
@@ -443,6 +469,8 @@ def main():
     parser.add_argument("--out", default=None, help="Výstupní složka (default: vedle vstupu)")
     parser.add_argument("--debug", action="store_true", help="Ulož mezikroky zpracování")
     args = parser.parse_args()
+
+    check_tesseract()
 
     input_path = Path(args.input)
     img_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"}
