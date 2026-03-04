@@ -81,6 +81,14 @@ class BibGUI:
         threading.Thread(target=self._process_folder, args=(folder,), daemon=True).start()
 
     def _process_folder(self, folder: str):
+        try:
+            self._process_folder_inner(folder)
+        except Exception as e:
+            self.root.after(
+                0, self.status_var.set, f"[CHYBA] {e}"
+            )
+
+    def _process_folder_inner(self, folder: str):
         photos = sorted(
             p for p in Path(folder).iterdir()
             if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
