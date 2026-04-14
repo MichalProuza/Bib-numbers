@@ -85,9 +85,9 @@ def detect_bibs(image_path: str, out_dir: str = None, debug: bool = False):
         paragraph=False,
         allowlist="0123456789",  # hledáme jen číslice → méně šumu
         min_size=10,             # default 20; zachytí menší/vzdálenější biby
-        text_threshold=0.5,      # default 0.7; citlivější detektor
+        text_threshold=0.6,      # default 0.7; mírně citlivější detektor
         low_text=0.3,            # default 0.4; větší pokrytí okrajů znaků
-        link_threshold=0.3,      # default 0.4; lépe spojí blízké číslice
+        link_threshold=0.4,      # default 0.4; zachováno – nižší hodnota slévá nesouvisející oblasti
         mag_ratio=1.5,           # default 1.0; zvětšení před detekcí
     )
 
@@ -95,9 +95,26 @@ def detect_bibs(image_path: str, out_dir: str = None, debug: bool = False):
     bib_detections = []   # (bbox, num) pro anotaci a výřezy
 
     for (bbox, text, conf) in raw:
-        # Příliš nízká spolehlivost (allowlist snižuje riziko false positives)
-        if conf < 0.3:
+        # Příliš nízká spolehlivost
+        if conf < 0.35:
             continue
+
+        # Geometrická validace bbox ─────────────────────────────────────────
+        pts   = np.array(bbox, dtype=np.int32)
+        bx1   = int(pts[:, 0].min());  bx2 = int(pts[:, 0].max())
+        by1   = int(pts[:, 1].min());  by2 = int(pts[:, 1].max())
+        bh_px = by2 - by1
+        bw_px = bx2 - bx1
+
+        # Příliš nízký bib – spíš šum nebo vzdálené nečitelné číslo
+        if bh_px < 12:
+            continue
+
+        # Aspect ratio: „12" ≈ 1.2:1, „12345" ≈ 5:1 – extrémní hodnoty jsou šum
+        ratio = bw_px / max(bh_px, 1)
+        if ratio < 0.4 or ratio > 9.0:
+            continue
+        # ───────────────────────────────────────────────────────────────────
 
         # Ponech jen číslice ze zaznamenaného textu
         digits = "".join(c for c in text if c.isdigit())
