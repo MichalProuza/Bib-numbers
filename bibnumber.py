@@ -80,7 +80,7 @@ def _get_paddleocr_reader():
             try:
                 _paddleocr_reader = PaddleOCR(**kwargs)
                 break
-            except TypeError:
+            except Exception:
                 continue
         else:
             print("[CHYBA] Nepodařilo se inicializovat PaddleOCR.", flush=True)
