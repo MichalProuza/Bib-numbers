@@ -67,15 +67,24 @@ def _get_paddleocr_reader():
             " (první spuštění stáhne modely, chvíli trvá)…",
             flush=True,
         )
-        # PaddleOCR 3.x používá device="cpu", starší verze use_gpu=False
-        try:
-            _paddleocr_reader = PaddleOCR(
-                use_angle_cls=True, lang="en", device="cpu", show_log=False,
-            )
-        except TypeError:
-            _paddleocr_reader = PaddleOCR(
-                use_angle_cls=True, lang="en", use_gpu=False, show_log=False,
-            )
+        # Potlač verbose výstup přes logging (show_log byl odstraněn v 3.x)
+        import logging
+        logging.getLogger("ppocr").setLevel(logging.ERROR)
+
+        # Zkus varianty API postupně (3.x → 2.x → minimální)
+        for kwargs in [
+            {"lang": "en", "device": "cpu"},   # PaddleOCR 3.x
+            {"lang": "en", "use_gpu": False, "show_log": False},  # 2.x
+            {"lang": "en"},                     # absolutní záložka
+        ]:
+            try:
+                _paddleocr_reader = PaddleOCR(**kwargs)
+                break
+            except Exception:
+                continue
+        else:
+            print("[CHYBA] Nepodařilo se inicializovat PaddleOCR.", flush=True)
+            sys.exit(1)
         print("[INFO] PaddleOCR připraven.", flush=True)
     return _paddleocr_reader
 
