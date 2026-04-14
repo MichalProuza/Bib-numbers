@@ -220,10 +220,14 @@ class App:
         elif not easy_ok and not paddle_ok:
             messagebox.showerror(
                 "Žádný OCR engine nenalezen",
-                "Není nainstalován ani EasyOCR, ani PaddleOCR.\n\n"
-                "Nainstalujte alespoň jeden:\n"
+                "Není nainstalován nebo nefunguje ani EasyOCR, ani PaddleOCR.\n\n"
+                "EasyOCR:\n"
                 "  pip install easyocr\n"
-                "  pip install paddleocr"
+                "  (vyžaduje PyTorch – ověřte kompatibilitu s vaší verzí Pythonu)\n\n"
+                "PaddleOCR:\n"
+                "  pip install paddleocr paddlepaddle\n\n"
+                "Poznámka: PyTorch a PaddlePaddle nemusí podporovat Python 3.13.\n"
+                "Doporučená verze Pythonu je 3.10 nebo 3.11."
             )
 
     # ------------------------------------------------------------------ log helpers
