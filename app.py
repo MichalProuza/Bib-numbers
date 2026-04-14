@@ -39,12 +39,9 @@ JPEG_EXTENSIONS  = {".jpg", ".jpeg"}
 # ---------------------------------------------------------------------------
 
 def _iptc_records(keywords: list) -> bytes:
-    """Sestaví IPTC záznamy pro klíčová slova (dataset 2:25)."""
-    out = b""
-    for kw in keywords:
-        data = str(kw).encode("utf-8")[:255]
-        out += b"\x1c\x02\x19" + struct.pack(">H", len(data)) + data
-    return out
+    """Sestaví jeden IPTC záznam pro klíčová slova (dataset 2:25), čárkou oddělená."""
+    data = ", ".join(str(kw) for kw in keywords).encode("utf-8")[:255]
+    return b"\x1c\x02\x19" + struct.pack(">H", len(data)) + data
 
 
 def _app13_segment(iptc_data: bytes) -> bytes:
@@ -106,7 +103,7 @@ def write_keywords_to_jpeg(path: Path, keywords: list) -> bool:
                 exif_dict = piexif.load(str(path))
             except Exception:
                 exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}, "thumbnail": None}
-            xp = ";".join(str(n) for n in keywords) + "\x00"
+            xp = ", ".join(str(n) for n in keywords) + "\x00"
             exif_dict["0th"][piexif.ImageIFD.XPKeywords] = xp.encode("utf-16-le")
             piexif.insert(piexif.dump(exif_dict), str(path))
 
