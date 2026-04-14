@@ -12,7 +12,7 @@ Funkce:
     • Průběžný výpis stavu na příkazový řádek i do okna aplikace
 
 Závislosti:
-    pip install piexif pillow opencv-python pytesseract numpy scipy
+    pip install easyocr piexif pillow opencv-python
 """
 
 import tkinter as tk
@@ -28,7 +28,7 @@ try:
 except ImportError:
     PIEXIF_AVAILABLE = False
 
-from bibnumber import detect_bibs, check_tesseract
+from bibnumber import detect_bibs, check_easyocr
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 JPEG_EXTENSIONS  = {".jpg", ".jpeg"}
@@ -126,7 +126,7 @@ class App:
         self.root.minsize(540, 400)
         self._stop_event = threading.Event()
         self._build_ui()
-        self._check_tesseract()
+        self._check_deps()
 
     # ------------------------------------------------------------------ stavba UI
 
@@ -185,17 +185,15 @@ class App:
 
     # ------------------------------------------------------------------ kontroly
 
-    def _check_tesseract(self):
+    def _check_deps(self):
         try:
-            check_tesseract()
+            check_easyocr()
         except SystemExit:
             messagebox.showerror(
-                "Tesseract nenalezen",
-                "Tesseract OCR není nainstalován nebo není v PATH.\n\n"
-                "Windows:  https://github.com/UB-Mannheim/tesseract/wiki\n"
-                "macOS:    brew install tesseract\n"
-                "Linux:    sudo apt install tesseract-ocr\n\n"
-                "Bez Tesseractu nelze rozpoznávat čísla."
+                "EasyOCR nenalezeno",
+                "EasyOCR není nainstalován.\n\n"
+                "Nainstalujte: pip install easyocr\n\n"
+                "Při prvním spuštění se automaticky stáhnou modely (~100 MB)."
             )
 
     # ------------------------------------------------------------------ log helpers
