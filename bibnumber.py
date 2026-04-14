@@ -3,14 +3,15 @@
 bibnumber.py – detekce startovních čísel ze závodních fotek
 
 Pipeline:
-  1. EasyOCR (CRAFT detektor textu + CRNN rekognice)
-  2. Filtrace výsledků: pouze číslice, 2–6 znaků, confidence ≥ 0.4
+  1. OCR engine (EasyOCR nebo PaddleOCR)
+  2. Filtrace výsledků: pouze číslice, 2–6 znaků, confidence ≥ 0.35
   3. Post-validace: zamítnutí opakujících se vzorů ("1111")
+  4. Vizuální validace: kontrast + uniformita okolí (_looks_like_bib)
 
 Použití:
   python3 bibnumber.py foto.jpg
   python3 bibnumber.py slozka_s_fotkami/
-  python3 bibnumber.py foto.jpg --out vystup/
+  python3 bibnumber.py foto.jpg --out vystup/ --engine paddleocr
 """
 
 import cv2
@@ -20,15 +21,16 @@ import argparse
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# EasyOCR reader – lazy init, inicializuje se jednou za celý proces
+# OCR readers – lazy init, každý se inicializuje jednou za celý proces
 # ---------------------------------------------------------------------------
 
-_reader = None
+_easyocr_reader  = None
+_paddleocr_reader = None
 
 
-def _get_reader():
-    global _reader
-    if _reader is None:
+def _get_easyocr_reader():
+    global _easyocr_reader
+    if _easyocr_reader is None:
         try:
             import easyocr
         except ImportError:
@@ -43,9 +45,36 @@ def _get_reader():
             " (první spuštění stáhne modely ~100 MB, chvíli trvá)…",
             flush=True,
         )
-        _reader = easyocr.Reader(["en"], gpu=False, verbose=False)
+        _easyocr_reader = easyocr.Reader(["en"], gpu=False, verbose=False)
         print("[INFO] EasyOCR připraven.", flush=True)
-    return _reader
+    return _easyocr_reader
+
+
+def _get_paddleocr_reader():
+    global _paddleocr_reader
+    if _paddleocr_reader is None:
+        try:
+            from paddleocr import PaddleOCR
+        except ImportError:
+            print(
+                "[CHYBA] PaddleOCR není nainstalován.\n"
+                "Nainstalujte: pip install paddleocr\n",
+                flush=True,
+            )
+            sys.exit(1)
+        print(
+            "[INFO] Inicializuji PaddleOCR"
+            " (první spuštění stáhne modely, chvíli trvá)…",
+            flush=True,
+        )
+        _paddleocr_reader = PaddleOCR(
+            use_angle_cls=True,
+            lang="en",
+            use_gpu=False,
+            show_log=False,
+        )
+        print("[INFO] PaddleOCR připraven.", flush=True)
+    return _paddleocr_reader
 
 
 # ---------------------------------------------------------------------------
@@ -119,9 +148,13 @@ def _looks_like_bib(img_bgr: np.ndarray, pts: np.ndarray) -> bool:
 # Hlavní funkce
 # ---------------------------------------------------------------------------
 
-def detect_bibs(image_path: str, out_dir: str = None, debug: bool = False):
+def detect_bibs(image_path: str, out_dir: str = None, debug: bool = False,
+                engine: str = "easyocr"):
     """
     Zpracuje jeden obrázek a vrátí seznam detekovaných startovních čísel.
+
+    Args:
+        engine: "easyocr" (výchozí) nebo "paddleocr"
 
     Returns:
         list[int] – unikátní detekovaná čísla (seřazená)
@@ -139,18 +172,28 @@ def detect_bibs(image_path: str, out_dir: str = None, debug: bool = False):
         img_bgr = cv2.resize(img_bgr, (int(w * scale), int(h * scale)))
         h, w = img_bgr.shape[:2]
 
-    # EasyOCR – vrátí seznam (bbox, text, confidence)
-    reader = _get_reader()
-    raw = reader.readtext(
-        img_bgr,
-        detail=1,
-        paragraph=False,
-        min_size=10,        # default 20; zachytí menší/vzdálenější biby
-        text_threshold=0.6, # default 0.7; mírně citlivější detektor
-        low_text=0.3,       # default 0.4; větší pokrytí okrajů znaků
-        link_threshold=0.4, # default 0.4
-        mag_ratio=1.5,      # default 1.0; zvětšení před detekcí
-    )
+    # OCR – výstup normalizujeme na jednotný formát [(bbox, text, conf), …]
+    # kde bbox = [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
+    if engine == "paddleocr":
+        ocr = _get_paddleocr_reader()
+        paddle_result = ocr.ocr(img_bgr, cls=True)
+        raw = []
+        if paddle_result and paddle_result[0]:
+            for line in paddle_result[0]:
+                box, (text, conf) = line
+                raw.append((box, text, float(conf)))
+    else:
+        reader = _get_easyocr_reader()
+        raw = reader.readtext(
+            img_bgr,
+            detail=1,
+            paragraph=False,
+            min_size=10,        # default 20; zachytí menší/vzdálenější biby
+            text_threshold=0.6, # default 0.7; mírně citlivější detektor
+            low_text=0.3,       # default 0.4; větší pokrytí okrajů znaků
+            link_threshold=0.4, # default 0.4
+            mag_ratio=1.5,      # default 1.0; zvětšení před detekcí
+        )
 
     results       = []
     bib_detections = []   # (bbox, num) pro anotaci a výřezy
@@ -258,6 +301,34 @@ def check_easyocr():
         sys.exit(1)
 
 
+def check_paddleocr():
+    """Ověří, že PaddleOCR je nainstalován. Při chybě ukončí proces."""
+    try:
+        from paddleocr import PaddleOCR  # noqa: F401
+    except ImportError:
+        print(
+            "[CHYBA] PaddleOCR není nainstalován.\n"
+            "Nainstalujte: pip install paddleocr\n"
+        )
+        sys.exit(1)
+
+
+def is_easyocr_available() -> bool:
+    try:
+        import easyocr  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def is_paddleocr_available() -> bool:
+    try:
+        from paddleocr import PaddleOCR  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -270,10 +341,15 @@ def main():
     )
     parser.add_argument("input", help="Cesta k obrázku nebo složce")
     parser.add_argument("--out", default=None, help="Výstupní složka (default: vedle vstupu)")
+    parser.add_argument("--engine", choices=["easyocr", "paddleocr"],
+                        default="easyocr", help="OCR engine (default: easyocr)")
     parser.add_argument("--debug", action="store_true", help="Debug mód")
     args = parser.parse_args()
 
-    check_easyocr()
+    if args.engine == "paddleocr":
+        check_paddleocr()
+    else:
+        check_easyocr()
 
     input_path = Path(args.input)
     img_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"}
@@ -283,10 +359,12 @@ def main():
                  if f.suffix.lower() in img_extensions]
         print(f"Zpracovávám {len(files)} obrázků ze složky {input_path}/")
         for f in files:
-            numbers = detect_bibs(str(f), out_dir=args.out, debug=args.debug)
+            numbers = detect_bibs(str(f), out_dir=args.out, debug=args.debug,
+                                  engine=args.engine)
             print(f"{f.name}: {sorted(numbers) if numbers else '(nic nenalezeno)'}")
     elif input_path.is_file():
-        numbers = detect_bibs(str(input_path), out_dir=args.out, debug=args.debug)
+        numbers = detect_bibs(str(input_path), out_dir=args.out, debug=args.debug,
+                              engine=args.engine)
         if numbers:
             print(f"\nNalezená startovní čísla: {numbers}")
         else:

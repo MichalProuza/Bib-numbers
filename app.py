@@ -12,7 +12,7 @@ Funkce:
     • Průběžný výpis stavu na příkazový řádek i do okna aplikace
 
 Závislosti:
-    pip install easyocr piexif pillow opencv-python
+    pip install easyocr paddleocr piexif pillow opencv-python
 """
 
 import tkinter as tk
@@ -28,7 +28,7 @@ try:
 except ImportError:
     PIEXIF_AVAILABLE = False
 
-from bibnumber import detect_bibs, check_easyocr
+from bibnumber import detect_bibs, is_easyocr_available, is_paddleocr_available
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 JPEG_EXTENSIONS  = {".jpg", ".jpeg"}
@@ -151,6 +151,22 @@ class App:
                                    state=tk.DISABLED)
         self.stop_btn.pack(side=tk.LEFT, padx=(4, 0))
 
+        # --- Výběr OCR enginu ---
+        eng_frame = ttk.Frame(self.root, padding=(10, 0, 10, 6))
+        eng_frame.pack(fill=tk.X)
+
+        ttk.Label(eng_frame, text="Engine:").pack(side=tk.LEFT)
+
+        self.engine_var = tk.StringVar(value="easyocr")
+        self.easy_radio = ttk.Radiobutton(
+            eng_frame, text="EasyOCR", variable=self.engine_var, value="easyocr"
+        )
+        self.easy_radio.pack(side=tk.LEFT, padx=(8, 0))
+        self.paddle_radio = ttk.Radiobutton(
+            eng_frame, text="PaddleOCR", variable=self.engine_var, value="paddleocr"
+        )
+        self.paddle_radio.pack(side=tk.LEFT, padx=(8, 0))
+
         # --- Progress bar ---
         self.progress = ttk.Progressbar(self.root, mode="determinate", maximum=100)
         self.progress.pack(fill=tk.X, padx=10, pady=(0, 4))
@@ -186,14 +202,24 @@ class App:
     # ------------------------------------------------------------------ kontroly
 
     def _check_deps(self):
-        try:
-            check_easyocr()
-        except SystemExit:
+        easy_ok   = is_easyocr_available()
+        paddle_ok = is_paddleocr_available()
+
+        if not easy_ok:
+            self.easy_radio.configure(state=tk.DISABLED)
+        if not paddle_ok:
+            self.paddle_radio.configure(state=tk.DISABLED)
+
+        # Nastavíme výchozí engine na první dostupný
+        if not easy_ok and paddle_ok:
+            self.engine_var.set("paddleocr")
+        elif not easy_ok and not paddle_ok:
             messagebox.showerror(
-                "EasyOCR nenalezeno",
-                "EasyOCR není nainstalován.\n\n"
-                "Nainstalujte: pip install easyocr\n\n"
-                "Při prvním spuštění se automaticky stáhnou modely (~100 MB)."
+                "Žádný OCR engine nenalezen",
+                "Není nainstalován ani EasyOCR, ani PaddleOCR.\n\n"
+                "Nainstalujte alespoň jeden:\n"
+                "  pip install easyocr\n"
+                "  pip install paddleocr"
             )
 
     # ------------------------------------------------------------------ log helpers
@@ -260,6 +286,8 @@ class App:
             self.root.after(0, self.stop_btn.configure,  {"state": tk.DISABLED})
 
     def _process(self, folder: str):
+        engine = self.engine_var.get()
+
         photos = sorted(
             p for p in Path(folder).iterdir()
             if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
@@ -276,9 +304,11 @@ class App:
         annotated_dir = Path(folder) / "_annotated"
         annotated_dir.mkdir(exist_ok=True)
 
+        engine_label = "EasyOCR" if engine == "easyocr" else "PaddleOCR"
         self._log(f"{'='*60}", "head")
         self._log(f"  Složka:   {folder}", "head")
         self._log(f"  Fotek:    {total}", "head")
+        self._log(f"  Engine:   {engine_label}", "head")
         self._log(f"  Výstup:   {annotated_dir}", "head")
         self._log("  IPTC:     klíčová slova (dataset 2:25)", "head")
         if PIEXIF_AVAILABLE:
@@ -303,7 +333,8 @@ class App:
 
             # Detekce čísel + uložení anotované kopie
             try:
-                numbers = detect_bibs(str(photo), out_dir=str(annotated_dir))
+                numbers = detect_bibs(str(photo), out_dir=str(annotated_dir),
+                                      engine=engine)
             except Exception as e:
                 self._log(f"  CHYBA při detekci: {e}", "error")
                 self._set_progress(i / total * 100)
