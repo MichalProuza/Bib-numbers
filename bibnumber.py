@@ -237,12 +237,19 @@ def detect_bibs(image_path: str, out_dir: str = None, debug: bool = False,
     # kde bbox = [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
     if engine == "paddleocr":
         ocr = _get_paddleocr_reader()
-        paddle_result = ocr.ocr(img_bgr, cls=True)
+        # PaddleOCR 3.x odstranil parametr cls – zkusíme obě varianty
+        try:
+            paddle_result = ocr.ocr(img_bgr, cls=True)
+        except TypeError:
+            paddle_result = ocr.ocr(img_bgr)
         raw = []
-        if paddle_result and paddle_result[0]:
-            for line in paddle_result[0]:
+        page = paddle_result[0] if paddle_result else []
+        for line in (page or []):
+            try:
                 box, (text, conf) = line
-                raw.append((box, text, float(conf)))
+                raw.append((box, str(text), float(conf)))
+            except Exception:
+                pass
     else:
         reader = _get_easyocr_reader()
         raw = reader.readtext(
