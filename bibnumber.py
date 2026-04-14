@@ -79,14 +79,24 @@ def detect_bibs(image_path: str, out_dir: str = None, debug: bool = False):
 
     # EasyOCR – vrátí seznam (bbox, text, confidence)
     reader = _get_reader()
-    raw = reader.readtext(img_bgr, detail=1, paragraph=False)
+    raw = reader.readtext(
+        img_bgr,
+        detail=1,
+        paragraph=False,
+        allowlist="0123456789",  # hledáme jen číslice → méně šumu
+        min_size=10,             # default 20; zachytí menší/vzdálenější biby
+        text_threshold=0.5,      # default 0.7; citlivější detektor
+        low_text=0.3,            # default 0.4; větší pokrytí okrajů znaků
+        link_threshold=0.3,      # default 0.4; lépe spojí blízké číslice
+        mag_ratio=1.5,           # default 1.0; zvětšení před detekcí
+    )
 
     results       = []
     bib_detections = []   # (bbox, num) pro anotaci a výřezy
 
     for (bbox, text, conf) in raw:
-        # Příliš nízká spolehlivost
-        if conf < 0.4:
+        # Příliš nízká spolehlivost (allowlist snižuje riziko false positives)
+        if conf < 0.3:
             continue
 
         # Ponech jen číslice ze zaznamenaného textu
