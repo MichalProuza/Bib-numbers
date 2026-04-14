@@ -158,12 +158,14 @@ class App:
         ttk.Label(eng_frame, text="Engine:").pack(side=tk.LEFT)
 
         self.engine_var = tk.StringVar(value="easyocr")
+        self.engine_var.trace_add("write", self._on_engine_change)
         self.easy_radio = ttk.Radiobutton(
             eng_frame, text="EasyOCR", variable=self.engine_var, value="easyocr"
         )
         self.easy_radio.pack(side=tk.LEFT, padx=(8, 0))
         self.paddle_radio = ttk.Radiobutton(
-            eng_frame, text="PaddleOCR", variable=self.engine_var, value="paddleocr"
+            eng_frame, text="PaddleOCR  (pomalejší na CPU)",
+            variable=self.engine_var, value="paddleocr"
         )
         self.paddle_radio.pack(side=tk.LEFT, padx=(8, 0))
 
@@ -242,6 +244,14 @@ class App:
         self.log.configure(state=tk.NORMAL)
         self.log.delete("1.0", tk.END)
         self.log.configure(state=tk.DISABLED)
+
+    def _on_engine_change(self, *_):
+        if self.engine_var.get() == "paddleocr":
+            self.status_var.set(
+                "PaddleOCR: přesnější, ale na CPU výrazně pomalejší (desítky sekund/fotka)."
+            )
+        else:
+            self.status_var.set("Vyberte složku a klikněte na Spustit.")
 
     def _set_status(self, text: str):
         self.root.after(0, self.status_var.set, text)

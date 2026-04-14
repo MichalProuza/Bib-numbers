@@ -176,8 +176,9 @@ def detect_bibs(image_path: str, out_dir: str = None, debug: bool = False,
         print(f"[CHYBA] Nelze načíst: {image_path}", flush=True)
         return []
 
-    # Zmenši velké fotky pro rychlost (zachová aspect ratio)
-    max_dim = 1600
+    # Zmenši velké fotky pro rychlost (zachová aspect ratio).
+    # PaddleOCR na CPU je výrazně pomalejší – používáme menší limit.
+    max_dim = 1024 if engine == "paddleocr" else 1600
     h, w = img_bgr.shape[:2]
     if max(h, w) > max_dim:
         scale = max_dim / max(h, w)
