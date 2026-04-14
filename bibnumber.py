@@ -144,12 +144,11 @@ def detect_bibs(image_path: str, out_dir: str = None, debug: bool = False):
         img_bgr,
         detail=1,
         paragraph=False,
-        allowlist="0123456789",  # hledáme jen číslice → méně šumu
-        min_size=10,             # default 20; zachytí menší/vzdálenější biby
-        text_threshold=0.6,      # default 0.7; mírně citlivější detektor
-        low_text=0.3,            # default 0.4; větší pokrytí okrajů znaků
-        link_threshold=0.4,      # default 0.4; zachováno – nižší hodnota slévá nesouvisející oblasti
-        mag_ratio=1.5,           # default 1.0; zvětšení před detekcí
+        min_size=10,        # default 20; zachytí menší/vzdálenější biby
+        text_threshold=0.6, # default 0.7; mírně citlivější detektor
+        low_text=0.3,       # default 0.4; větší pokrytí okrajů znaků
+        link_threshold=0.4, # default 0.4
+        mag_ratio=1.5,      # default 1.0; zvětšení před detekcí
     )
 
     results       = []
@@ -177,8 +176,12 @@ def detect_bibs(image_path: str, out_dir: str = None, debug: bool = False):
             continue
         # ───────────────────────────────────────────────────────────────────
 
-        # Ponech jen číslice ze zaznamenaného textu
-        digits = "".join(c for c in text if c.isdigit())
+        # Přečtený text musí být CELÝ číselný (ignorujeme mezery).
+        # Bez allowlistu EasyOCR přečte "SPORT" jako "SPORT" → zamítneme.
+        # S allowlistem by ho přečetl jako "5P0R7" → extrahoval by "507" → false positive.
+        digits = "".join(c for c in text if not c.isspace())
+        if not digits.isdigit():
+            continue
 
         # Startovní čísla mají 2–6 číslic
         if len(digits) < 2 or len(digits) > 6:
