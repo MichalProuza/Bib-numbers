@@ -65,7 +65,11 @@ def _get_easyocr_reader():
             " (první spuštění stáhne modely ~100 MB, chvíli trvá)…",
             flush=True,
         )
-        _easyocr_reader = easyocr.Reader(["en"], gpu=use_gpu, verbose=False)
+        _easyocr_reader = easyocr.Reader(
+            ["en"], gpu=use_gpu, verbose=False,
+            # quantize=True zrychlí CPU inferenci 2–3× s minimální ztrátou přesnosti
+            quantize=not use_gpu,
+        )
         print(f"[INFO] EasyOCR připraven [{device_label}].", flush=True)
     return _easyocr_reader
 
@@ -73,6 +77,10 @@ def _get_easyocr_reader():
 def _get_paddleocr_reader():
     global _paddleocr_reader
     if _paddleocr_reader is None:
+        # Zakáž oneDNN – způsobuje pád na některých CPU konfiguracích s 3.x
+        import os
+        os.environ.setdefault("FLAGS_use_mkldnn", "0")
+        os.environ.setdefault("PADDLE_DISABLE_ONEDNN", "1")
         try:
             from paddleocr import PaddleOCR
         except ImportError:
@@ -226,7 +234,7 @@ def detect_bibs(image_path: str, out_dir: str = None, debug: bool = False,
 
     # Zmenši velké fotky pro rychlost (zachová aspect ratio).
     # PaddleOCR na CPU je výrazně pomalejší – používáme menší limit.
-    max_dim = 1024 if engine == "paddleocr" else 1600
+    max_dim = 1024 if engine == "paddleocr" else 1200
     h, w = img_bgr.shape[:2]
     if max(h, w) > max_dim:
         scale = max_dim / max(h, w)
@@ -260,7 +268,8 @@ def detect_bibs(image_path: str, out_dir: str = None, debug: bool = False,
             text_threshold=0.6, # default 0.7; mírně citlivější detektor
             low_text=0.3,       # default 0.4; větší pokrytí okrajů znaků
             link_threshold=0.4, # default 0.4
-            mag_ratio=1.5,      # default 1.0; zvětšení před detekcí
+            mag_ratio=1.2,      # sníženo z 1.5 → rychlejší detekce na CPU
+            batch_size=4,       # default 1; vyšší throughput na CPU
         )
 
     results       = []
