@@ -163,10 +163,8 @@ class App:
             eng_frame, text="EasyOCR", variable=self.engine_var, value="easyocr"
         )
         self.easy_radio.pack(side=tk.LEFT, padx=(8, 0))
-        from bibnumber import _detect_gpu_paddle
-        paddle_note = "" if _detect_gpu_paddle() else "  (pomalejší bez GPU)"
         self.paddle_radio = ttk.Radiobutton(
-            eng_frame, text=f"PaddleOCR{paddle_note}",
+            eng_frame, text="PaddleOCR",
             variable=self.engine_var, value="paddleocr"
         )
         self.paddle_radio.pack(side=tk.LEFT, padx=(8, 0))
@@ -206,6 +204,8 @@ class App:
     # ------------------------------------------------------------------ kontroly
 
     def _check_deps(self):
+        # DŮLEŽITÉ: easyocr musí být zkontrolován PŘED paddle.
+        # Na Windows import paddle načte DLL které mohou kolidovat s torch.
         easy_ok   = is_easyocr_available()
         paddle_ok = is_paddleocr_available()
 
@@ -213,6 +213,11 @@ class App:
             self.easy_radio.configure(state=tk.DISABLED)
         if not paddle_ok:
             self.paddle_radio.configure(state=tk.DISABLED)
+        elif paddle_ok:
+            # Teprve teď (po easyocr importu) zjistíme GPU pro popisek
+            from bibnumber import _detect_gpu_paddle
+            if not _detect_gpu_paddle():
+                self.paddle_radio.configure(text="PaddleOCR  (pomalejší bez GPU)")
 
         # Nastavíme výchozí engine na první dostupný
         if not easy_ok and paddle_ok:
