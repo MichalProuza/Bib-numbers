@@ -130,11 +130,11 @@ def find_text_candidates(gray: np.ndarray, debug: bool = False):
         x0, y0, x1, y1 = (region[:, 0].min(), region[:, 1].min(),
                            region[:, 0].max(), region[:, 1].max())
         rw, rh = x1 - x0, y1 - y0
-        if rw < 4 or rh < 4:
+        if rw < 6 or rh < 8:          # příliš malé = šum, ne číslice
             continue
         aspect = rw / max(rh, 1)
         # Číslice jsou přibližně čtvercové nebo mírně vyšší
-        if aspect < 0.1 or aspect > 4.0:
+        if aspect < 0.15 or aspect > 2.5:
             continue
         candidates.append((x0, y0, rw, rh))
 
@@ -149,14 +149,14 @@ def find_text_candidates(gray: np.ndarray, debug: bool = False):
     contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     for cnt in contours:
         x0, y0, rw, rh = cv2.boundingRect(cnt)
-        if rw < 4 or rh < 4:
+        if rw < 6 or rh < 8:
             continue
         aspect = rw / max(rh, 1)
-        if aspect < 0.1 or aspect > 4.0:
+        if aspect < 0.15 or aspect > 2.5:
             continue
         area = cv2.contourArea(cnt)
         fill = area / max(rw * rh, 1)
-        if fill < 0.1:
+        if fill < 0.15:
             continue
         candidates.append((x0, y0, rw, rh))
 
@@ -192,15 +192,15 @@ def group_text_candidates(candidates, img_h: int, img_w: int):
             if i == j or used[j]:
                 continue
             cy1 = y1 + h1 / 2
-            # Podobná výška (středy do 0.6× výšky od sebe)
-            if abs(cy0 - cy1) > max(h0, h1) * 0.6:
+            # Podobná výška (středy do 0.45× výšky od sebe)
+            if abs(cy0 - cy1) > max(h0, h1) * 0.45:
                 continue
-            # Podobná velikost (výška do 2×)
-            if max(h0, h1) / max(min(h0, h1), 1) > 3.0:
+            # Podobná velikost (výška max 2× rozdíl)
+            if max(h0, h1) / max(min(h0, h1), 1) > 2.0:
                 continue
-            # Horizontální blízkost (mezera max 3× šířka znaku)
+            # Horizontální blízkost (mezera max 1.5× šířka znaku)
             gap = x1 - (x0 + w0)
-            if -w0 < gap < max(w0, w1) * 3:
+            if -w0 < gap < max(w0, w1) * 1.5:
                 group.append(j)
 
         if len(group) >= 2:  # aspoň 2 znaky vedle sebe
@@ -293,30 +293,45 @@ def preprocess_for_ocr(roi: np.ndarray) -> np.ndarray:
     return bordered
 
 
-def ocr_digits(roi_gray: np.ndarray) -> str:
+def ocr_digits(roi_gray: np.ndarray, min_conf: int = 55) -> str:
     """
-    Spustí Tesseract v módu pro číslice, vrátí string číslic.
-    Pokud Tesseract není nainstalován, vrátí prázdný řetězec.
+    Spustí Tesseract s kontrolou spolehlivosti (0–100).
+    Zkouší původní i invertovaný obraz a vrátí výsledek s vyšší jistotou.
+    Vrátí prázdný řetězec pokud průměrná spolehlivost < min_conf.
     """
-    img = preprocess_for_ocr(roi_gray)
+    config = '--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789'
 
-    config = (
-        '--oem 3 '          # LSTM engine
-        '--psm 7 '          # Single text line
-        '-c tessedit_char_whitelist=0123456789'
-    )
-    try:
-        text = pytesseract.image_to_string(img, config=config)
-    except TesseractNotFoundError:
-        raise TesseractNotFoundError(
-            "Tesseract OCR nebyl nalezen. Nainstalujte jej:\n"
-            "  Windows:  https://github.com/UB-Mannheim/tesseract/wiki\n"
-            "  macOS:    brew install tesseract\n"
-            "  Linux:    sudo apt install tesseract-ocr"
-        )
-    # Ponech jen číslice
-    digits = ''.join(c for c in text if c.isdigit())
-    return digits
+    base = preprocess_for_ocr(roi_gray)
+    best_digits = ''
+    best_conf   = -1.0
+
+    for img in (base, cv2.bitwise_not(base)):
+        try:
+            data = pytesseract.image_to_data(
+                img, config=config,
+                output_type=pytesseract.Output.DICT
+            )
+        except TesseractNotFoundError:
+            raise TesseractNotFoundError(
+                "Tesseract OCR nebyl nalezen. Nainstalujte jej:\n"
+                "  Windows:  https://github.com/UB-Mannheim/tesseract/wiki\n"
+                "  macOS:    brew install tesseract\n"
+                "  Linux:    sudo apt install tesseract-ocr"
+            )
+        except Exception:
+            continue
+
+        confs  = [int(c) for c in data['conf'] if int(c) >= 0]
+        digits = ''.join(c for t in data['text'] for c in t if c.isdigit())
+        if not confs or not digits:
+            continue
+
+        mean_conf = sum(confs) / len(confs)
+        if mean_conf > best_conf:
+            best_conf   = mean_conf
+            best_digits = digits
+
+    return best_digits if best_conf >= min_conf else ''
 
 
 def deskew_roi(roi_gray: np.ndarray) -> np.ndarray:
@@ -399,48 +414,44 @@ def detect_bibs(image_path: str, out_dir: str = None, debug: bool = False):
     # --- OCR každé skupiny ---
     results = []
     bib_count = 0
+    ocr_cache = {}   # (x,y,bw,bh) → int, aby se OCR nevolalo dvakrát
 
     for (x, y, bw, bh) in groups:
         roi_gray = gray[y:y + bh, x:x + bw]
         if roi_gray.size == 0:
             continue
 
-        # Deskew
-        roi_deskewed = deskew_roi(roi_gray)
+        number_str = ocr_digits(deskew_roi(roi_gray))
 
-        # OCR
-        number_str = ocr_digits(roi_deskewed)
+        # Validace: 2–6 číslic, hodnota > 9, nesmí být všechny cifry stejné
+        if len(number_str) < 2 or len(number_str) > 6:
+            continue
+        if len(set(number_str)) == 1:   # "1111", "0000" apod. = šum
+            continue
+        try:
+            num = int(number_str)
+        except ValueError:
+            continue
+        if num < 10:
+            continue
 
-        # Filtruj: startovní čísla mají typicky 2–5 číslic, >9
-        if len(number_str) >= 2:
-            try:
-                num = int(number_str)
-                if num >= 10:  # ignoruj jednociferná (nízká přesnost)
-                    results.append(num)
-                    # Ulož výřez
-                    roi_color = img_bgr[y:y + bh, x:x + bw]
-                    out_path = save_dir / f"bib-{bib_count:05d}-{num:04d}.png"
-                    cv2.imwrite(str(out_path), roi_color)
-                    bib_count += 1
-            except ValueError:
-                pass
+        ocr_cache[(x, y, bw, bh)] = num
+        results.append(num)
+        roi_color = img_bgr[y:y + bh, x:x + bw]
+        out_path = save_dir / f"bib-{bib_count:05d}-{num:04d}.png"
+        cv2.imwrite(str(out_path), roi_color)
+        bib_count += 1
 
     results = sorted(set(results))
 
-    # Finální anotovaný obrázek
+    # Finální anotovaný obrázek – použij cache, bez druhého OCR
     final = img_bgr.copy()
     for (x, y, bw, bh) in groups:
-        roi_gray = gray[y:y + bh, x:x + bw]
-        number_str = ocr_digits(deskew_roi(roi_gray))
-        if len(number_str) >= 2:
-            try:
-                num = int(number_str)
-                if num >= 10:
-                    cv2.rectangle(final, (x, y), (x + bw, y + bh), (0, 200, 0), 2)
-                    cv2.putText(final, str(num), (x, y - 6),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 0), 2)
-            except ValueError:
-                pass
+        num = ocr_cache.get((x, y, bw, bh))
+        if num is not None:
+            cv2.rectangle(final, (x, y), (x + bw, y + bh), (0, 200, 0), 2)
+            cv2.putText(final, str(num), (x, y - 6),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 0), 2)
     cv2.imwrite(str(save_dir / "annotated.jpg"), final)
 
     return results
