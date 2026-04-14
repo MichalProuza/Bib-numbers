@@ -28,6 +28,24 @@ _easyocr_reader  = None
 _paddleocr_reader = None
 
 
+def _detect_gpu_easyocr() -> bool:
+    """Vrátí True pokud je dostupné CUDA GPU pro PyTorch/EasyOCR."""
+    try:
+        import torch
+        return torch.cuda.is_available()
+    except Exception:
+        return False
+
+
+def _detect_gpu_paddle() -> bool:
+    """Vrátí True pokud je PaddlePaddle zkompilováno s CUDA a GPU je dostupné."""
+    try:
+        import paddle
+        return paddle.is_compiled_with_cuda() and paddle.device.cuda.device_count() > 0
+    except Exception:
+        return False
+
+
 def _get_easyocr_reader():
     global _easyocr_reader
     if _easyocr_reader is None:
@@ -40,13 +58,15 @@ def _get_easyocr_reader():
                 flush=True,
             )
             sys.exit(1)
+        use_gpu = _detect_gpu_easyocr()
+        device_label = "GPU (CUDA)" if use_gpu else "CPU"
         print(
-            "[INFO] Inicializuji EasyOCR"
+            f"[INFO] Inicializuji EasyOCR [{device_label}]"
             " (první spuštění stáhne modely ~100 MB, chvíli trvá)…",
             flush=True,
         )
-        _easyocr_reader = easyocr.Reader(["en"], gpu=False, verbose=False)
-        print("[INFO] EasyOCR připraven.", flush=True)
+        _easyocr_reader = easyocr.Reader(["en"], gpu=use_gpu, verbose=False)
+        print(f"[INFO] EasyOCR připraven [{device_label}].", flush=True)
     return _easyocr_reader
 
 
@@ -62,8 +82,10 @@ def _get_paddleocr_reader():
                 flush=True,
             )
             sys.exit(1)
+        use_gpu = _detect_gpu_paddle()
+        device_label = "GPU (CUDA)" if use_gpu else "CPU"
         print(
-            "[INFO] Inicializuji PaddleOCR"
+            f"[INFO] Inicializuji PaddleOCR [{device_label}]"
             " (první spuštění stáhne modely, chvíli trvá)…",
             flush=True,
         )
@@ -71,11 +93,11 @@ def _get_paddleocr_reader():
         import logging
         logging.getLogger("ppocr").setLevel(logging.ERROR)
 
-        # Zkus varianty API postupně (3.x → 2.x → minimální)
+        # Zkus varianty API postupně – 3.x (device=), 2.x (use_gpu=), záložka
         for kwargs in [
-            {"lang": "en", "device": "cpu"},   # PaddleOCR 3.x
-            {"lang": "en", "use_gpu": False, "show_log": False},  # 2.x
-            {"lang": "en"},                     # absolutní záložka
+            {"lang": "en", "device": "gpu" if use_gpu else "cpu"},
+            {"lang": "en", "use_gpu": use_gpu, "show_log": False},
+            {"lang": "en"},
         ]:
             try:
                 _paddleocr_reader = PaddleOCR(**kwargs)
@@ -85,7 +107,7 @@ def _get_paddleocr_reader():
         else:
             print("[CHYBA] Nepodařilo se inicializovat PaddleOCR.", flush=True)
             sys.exit(1)
-        print("[INFO] PaddleOCR připraven.", flush=True)
+        print(f"[INFO] PaddleOCR připraven [{device_label}].", flush=True)
     return _paddleocr_reader
 
 
@@ -176,8 +198,9 @@ def detect_bibs(image_path: str, out_dir: str = None, debug: bool = False,
         print(f"[CHYBA] Nelze načíst: {image_path}", flush=True)
         return []
 
-    # Zmenši velké fotky pro rychlost (zachová aspect ratio)
-    max_dim = 1600
+    # Zmenši velké fotky pro rychlost (zachová aspect ratio).
+    # PaddleOCR na CPU je výrazně pomalejší – používáme menší limit.
+    max_dim = 1024 if engine == "paddleocr" else 1600
     h, w = img_bgr.shape[:2]
     if max(h, w) > max_dim:
         scale = max_dim / max(h, w)

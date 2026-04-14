@@ -158,12 +158,16 @@ class App:
         ttk.Label(eng_frame, text="Engine:").pack(side=tk.LEFT)
 
         self.engine_var = tk.StringVar(value="easyocr")
+        self.engine_var.trace_add("write", self._on_engine_change)
         self.easy_radio = ttk.Radiobutton(
             eng_frame, text="EasyOCR", variable=self.engine_var, value="easyocr"
         )
         self.easy_radio.pack(side=tk.LEFT, padx=(8, 0))
+        from bibnumber import _detect_gpu_paddle
+        paddle_note = "" if _detect_gpu_paddle() else "  (pomalejší bez GPU)"
         self.paddle_radio = ttk.Radiobutton(
-            eng_frame, text="PaddleOCR", variable=self.engine_var, value="paddleocr"
+            eng_frame, text=f"PaddleOCR{paddle_note}",
+            variable=self.engine_var, value="paddleocr"
         )
         self.paddle_radio.pack(side=tk.LEFT, padx=(8, 0))
 
@@ -242,6 +246,21 @@ class App:
         self.log.configure(state=tk.NORMAL)
         self.log.delete("1.0", tk.END)
         self.log.configure(state=tk.DISABLED)
+
+    def _on_engine_change(self, *_):
+        from bibnumber import _detect_gpu_paddle, _detect_gpu_easyocr
+        if self.engine_var.get() == "paddleocr":
+            if _detect_gpu_paddle():
+                self.status_var.set("PaddleOCR: GPU detekováno – rychlost srovnatelná s EasyOCR.")
+            else:
+                self.status_var.set(
+                    "PaddleOCR: GPU nedostupné – CPU je výrazně pomalejší (desítky sekund/fotka)."
+                )
+        else:
+            gpu = _detect_gpu_easyocr()
+            self.status_var.set(
+                f"EasyOCR {'[GPU]' if gpu else '[CPU]'} – vyberte složku a klikněte na Spustit."
+            )
 
     def _set_status(self, text: str):
         self.root.after(0, self.status_var.set, text)
