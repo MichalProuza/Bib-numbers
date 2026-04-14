@@ -84,8 +84,9 @@ def _looks_like_bib(img_bgr: np.ndarray, pts: np.ndarray) -> bool:
     if len(dark) == 0 or len(light) == 0:
         return False
 
-    # Rozdíl průměrů světlých a tmavých pixelů musí být alespoň 45/255
-    if float(light.mean()) - float(dark.mean()) < 45:
+    # Rozdíl průměrů světlých a tmavých pixelů musí být alespoň 35/255
+    # (původně 45 – příliš striktní pro vybledlé/mírně kontrastní biby)
+    if float(light.mean()) - float(dark.mean()) < 35:
         return False
 
     # 2. Uniformita pozadí kolem bbox (bib materiál) ─────────────────────────
@@ -109,9 +110,9 @@ def _looks_like_bib(img_bgr: np.ndarray, pts: np.ndarray) -> bool:
     if len(bg) < 20:
         return True   # Nedostatek dat k posouzení → propusť
 
-    # Vzorované oblečení / reklamy v pozadí mají std > 55
-    # Bib materiál (papír, tkanina) má std typicky < 45
-    return float(bg.std()) < 55
+    # Uniformita okolí: std < 65 = pravděpodobně bib materiál
+    # (vzorované oblečení / reklamy mívají std > 80)
+    return float(bg.std()) < 65
 
 
 # ---------------------------------------------------------------------------
@@ -199,8 +200,11 @@ def detect_bibs(image_path: str, out_dir: str = None, debug: bool = False):
         if num < 10:
             continue
 
-        # Vizuální validace – odmítne čísla bez bib-like pozadí
-        if not _looks_like_bib(img_bgr, pts):
+        # Vizuální validace – odmítne čísla bez bib-like pozadí.
+        # Pro velmi jisté detekce (conf ≥ 0.7) validaci přeskočíme – čistě
+        # číselný text s takovou spolehlivostí je prakticky vždy reálný bib
+        # a heuristika občas filtrovala i zjevná čísla.
+        if conf < 0.7 and not _looks_like_bib(img_bgr, pts):
             continue
 
         results.append(num)
