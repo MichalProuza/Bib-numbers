@@ -78,7 +78,17 @@ def _get_paddleocr_reader():
         except ImportError:
             print(
                 "[CHYBA] PaddleOCR není nainstalován.\n"
-                "Nainstalujte: pip install paddleocr\n",
+                "Nainstalujte: pip install paddleocr paddlepaddle\n",
+                flush=True,
+            )
+            sys.exit(1)
+        try:
+            import paddle  # noqa: F401
+        except ImportError:
+            print(
+                "[CHYBA] Chybí backend paddlepaddle.\n"
+                "Nainstalujte: pip install paddlepaddle\n"
+                "(pro GPU: pip install paddlepaddle-gpu)\n",
                 flush=True,
             )
             sys.exit(1)
@@ -353,13 +363,22 @@ def check_easyocr():
 
 
 def check_paddleocr():
-    """Ověří, že PaddleOCR je nainstalován. Při chybě ukončí proces."""
+    """Ověří, že PaddleOCR i paddlepaddle jsou nainstalovány. Při chybě ukončí proces."""
     try:
         from paddleocr import PaddleOCR  # noqa: F401
     except ImportError:
         print(
             "[CHYBA] PaddleOCR není nainstalován.\n"
-            "Nainstalujte: pip install paddleocr\n"
+            "Nainstalujte: pip install paddleocr paddlepaddle\n"
+        )
+        sys.exit(1)
+    try:
+        import paddle  # noqa: F401
+    except ImportError:
+        print(
+            "[CHYBA] Chybí backend paddlepaddle.\n"
+            "Nainstalujte: pip install paddlepaddle\n"
+            "(pro GPU: pip install paddlepaddle-gpu)\n"
         )
         sys.exit(1)
 
@@ -375,6 +394,7 @@ def is_easyocr_available() -> bool:
 def is_paddleocr_available() -> bool:
     try:
         from paddleocr import PaddleOCR  # noqa: F401
+        import paddle  # noqa: F401
         return True
     except ImportError:
         return False
