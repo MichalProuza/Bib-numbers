@@ -73,6 +73,10 @@ def _get_easyocr_reader():
 def _get_paddleocr_reader():
     global _paddleocr_reader
     if _paddleocr_reader is None:
+        # Zakáž oneDNN – způsobuje pád na některých CPU konfiguracích s 3.x
+        import os
+        os.environ.setdefault("FLAGS_use_mkldnn", "0")
+        os.environ.setdefault("PADDLE_DISABLE_ONEDNN", "1")
         try:
             from paddleocr import PaddleOCR
         except ImportError:
