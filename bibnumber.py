@@ -138,11 +138,6 @@ def detect_bibs(image_path: str, out_dir: str = None, debug: bool = False):
         img_bgr = cv2.resize(img_bgr, (int(w * scale), int(h * scale)))
         h, w = img_bgr.shape[:2]
 
-    # Výstupní adresář
-    stem = Path(image_path).stem
-    save_dir = Path(out_dir) if out_dir else Path(image_path).parent / f"{stem}.out"
-    save_dir.mkdir(parents=True, exist_ok=True)
-
     # EasyOCR – vrátí seznam (bbox, text, confidence)
     reader = _get_reader()
     raw = reader.readtext(
@@ -210,29 +205,32 @@ def detect_bibs(image_path: str, out_dir: str = None, debug: bool = False):
 
     results = sorted(set(results))
 
-    # Ulož výřezy a anotovaný obrázek
-    final = img_bgr.copy()
-    saved = set()
+    # Anotovaný obrázek – uloží se do out_dir s původním názvem fotky
+    if out_dir and bib_detections:
+        final = img_bgr.copy()
+        for (bbox, num) in bib_detections:
+            pts_a = np.array(bbox, dtype=np.int32)
+            x1 = int(pts_a[:, 0].min())
+            y1 = int(pts_a[:, 1].min())
 
-    for idx, (bbox, num) in enumerate(bib_detections):
-        pts = np.array(bbox, dtype=np.int32)
-        x1, y1 = int(pts[:, 0].min()), int(pts[:, 1].min())
-        x2, y2 = int(pts[:, 0].max()), int(pts[:, 1].max())
+            # Polygon kolem nalezeného čísla
+            cv2.polylines(final, [pts_a], True, (0, 200, 0), 3)
 
-        # Výřez
-        roi = img_bgr[max(0, y1):y2, max(0, x1):x2]
-        if roi.size > 0 and num not in saved:
-            cv2.imwrite(str(save_dir / f"bib-{idx:05d}-{num:04d}.png"), roi)
-            saved.add(num)
+            # Label: zelený rámeček + bílý text → čitelné na jakémkoli pozadí
+            label = str(num)
+            font  = cv2.FONT_HERSHEY_SIMPLEX
+            (lw, lh), bl = cv2.getTextSize(label, font, 0.9, 2)
+            ly = max(y1 - 6, lh + 6)
+            cv2.rectangle(
+                final,
+                (x1 - 2,      ly - lh - 4),
+                (x1 + lw + 4, ly + bl),
+                (0, 180, 0), cv2.FILLED,
+            )
+            cv2.putText(final, label, (x1 + 1, ly - 1), font, 0.9, (255, 255, 255), 2)
 
-        # Anotace – polygon (zvládá i nakloněné detekce)
-        cv2.polylines(final, [pts], True, (0, 200, 0), 2)
-        cv2.putText(
-            final, str(num), (x1, max(y1 - 6, 0)),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 0), 2,
-        )
-
-    cv2.imwrite(str(save_dir / "annotated.jpg"), final)
+        out_path = Path(out_dir) / Path(image_path).name
+        cv2.imwrite(str(out_path), final)
 
     return results
 
