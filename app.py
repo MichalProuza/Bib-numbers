@@ -271,19 +271,26 @@ class App:
             return
 
         total = len(photos)
+
+        # Výstupní složka pro anotované kopie
+        annotated_dir = Path(folder) / "_annotated"
+        annotated_dir.mkdir(exist_ok=True)
+
         self._log(f"{'='*60}", "head")
-        self._log(f"  Složka:  {folder}", "head")
-        self._log(f"  Fotek:   {total}", "head")
-        self._log("  IPTC:    klíčová slova (dataset 2:25)", "head")
+        self._log(f"  Složka:   {folder}", "head")
+        self._log(f"  Fotek:    {total}", "head")
+        self._log(f"  Výstup:   {annotated_dir}", "head")
+        self._log("  IPTC:     klíčová slova (dataset 2:25)", "head")
         if PIEXIF_AVAILABLE:
-            self._log("  EXIF:    XPKeywords (Windows Průzkumník)", "head")
+            self._log("  EXIF:     XPKeywords (Windows Průzkumník)", "head")
         else:
             self._log("  EXIF XPKeywords: vypnuto – nainstalujte: pip install piexif", "warn")
         self._log(f"{'='*60}", "head")
 
-        ok_count    = 0   # fotek s nalezeným číslem
-        kw_count    = 0   # fotek s úspěšným zápisem klíčových slov
-        total_nums  = 0   # celkem nalezených čísel
+        ok_count       = 0   # fotek s nalezeným číslem
+        kw_count       = 0   # fotek s úspěšným zápisem klíčových slov
+        annotated_count = 0  # uložených anotovaných kopií
+        total_nums     = 0   # celkem nalezených čísel
 
         for i, photo in enumerate(photos, 1):
             if self._stop_event.is_set():
@@ -294,9 +301,9 @@ class App:
             self._set_status(f"Zpracovávám {i}/{total}: {photo.name}")
             self._log(f"\n[{i}/{total}]  {photo.name}", "info")
 
-            # Detekce čísel
+            # Detekce čísel + uložení anotované kopie
             try:
-                numbers = detect_bibs(str(photo))
+                numbers = detect_bibs(str(photo), out_dir=str(annotated_dir))
             except Exception as e:
                 self._log(f"  CHYBA při detekci: {e}", "error")
                 self._set_progress(i / total * 100)
@@ -308,12 +315,18 @@ class App:
                 ok_count  += 1
                 total_nums += len(numbers)
 
+                # Anotovaná kopie
+                ann_path = annotated_dir / photo.name
+                if ann_path.exists():
+                    self._log(f"  Anotovaná kopie → _annotated/{photo.name}", "ok")
+                    annotated_count += 1
+
                 # Zápis klíčových slov do metadat
                 if photo.suffix.lower() in JPEG_EXTENSIONS:
                     written = write_keywords_to_jpeg(photo, numbers)
                     if written:
                         kw_label = "  |  ".join(str(n) for n in numbers)
-                        self._log(f"  Klíčová slova →  {kw_label}", "ok")
+                        self._log(f"  Klíčová slova   → {kw_label}", "ok")
                         kw_count += 1
                     else:
                         self._log("  Zápis klíčových slov selhal.", "warn")
@@ -326,16 +339,16 @@ class App:
 
         # Souhrn
         self._log(f"\n{'='*60}", "head")
-        self._log(f"  Zpracováno fotek:              {total}", "head")
-        self._log(f"  Fotek s nalezenými čísly:      {ok_count}", "head")
-        self._log(f"  Celkem nalezených čísel:       {total_nums}", "head")
-        self._log(f"  Klíčová slova zapsána do fotek:{kw_count}", "head")
+        self._log(f"  Zpracováno fotek:         {total}", "head")
+        self._log(f"  Fotek s nalezenými čísly: {ok_count}", "head")
+        self._log(f"  Celkem nalezených čísel:  {total_nums}", "head")
+        self._log(f"  Anotované kopie uloženy:  {annotated_count}  → _annotated/", "head")
+        self._log(f"  Klíčová slova zapsána:    {kw_count}", "head")
         self._log(f"{'='*60}", "head")
 
         self._set_status(
             f"Hotovo – {ok_count}/{total} fotek s čísly, "
-            f"celkem {total_nums} čísel, "
-            f"klíčová slova zapsána do {kw_count} fotek."
+            f"{annotated_count} anotovaných kopií v _annotated/."
         )
 
 

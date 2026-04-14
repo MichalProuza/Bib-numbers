@@ -49,6 +49,72 @@ def _get_reader():
 
 
 # ---------------------------------------------------------------------------
+# Vizuální validace – rozliší bib od náhodných čísel v pozadí
+# ---------------------------------------------------------------------------
+
+def _looks_like_bib(img_bgr: np.ndarray, pts: np.ndarray) -> bool:
+    """
+    Heuristicky ověří, zda detekovaný region vypadá jako startovní číslo.
+
+    Skutečný bib má dvě klíčové vlastnosti:
+      1. Vysoký kontrast číslic vůči jejich bezprostřednímu pozadí
+         (tmavé číslice na světlém papíru nebo naopak).
+      2. Relativně uniformní plocha kolem číslic – bib materiál
+         (papír/tkanina jedné barvy), na rozdíl od vzorovaného oblečení
+         nebo reklamy v pozadí.
+    """
+    x1 = int(pts[:, 0].min());  x2 = int(pts[:, 0].max())
+    y1 = int(pts[:, 1].min());  y2 = int(pts[:, 1].max())
+    bw, bh = x2 - x1, y2 - y1
+    if bw == 0 or bh == 0:
+        return False
+
+    H, W = img_bgr.shape[:2]
+
+    # 1. Kontrast uvnitř bbox ────────────────────────────────────────────────
+    inner = img_bgr[max(0, y1):min(H, y2), max(0, x1):min(W, x2)]
+    if inner.size == 0:
+        return False
+
+    gray = cv2.cvtColor(inner, cv2.COLOR_BGR2GRAY)
+    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    dark  = gray[binary == 0]
+    light = gray[binary == 255]
+    if len(dark) == 0 or len(light) == 0:
+        return False
+
+    # Rozdíl průměrů světlých a tmavých pixelů musí být alespoň 45/255
+    if float(light.mean()) - float(dark.mean()) < 45:
+        return False
+
+    # 2. Uniformita pozadí kolem bbox (bib materiál) ─────────────────────────
+    pad = max(int(min(bw, bh) * 0.6), 10)
+    ox1 = max(0, x1 - pad);  oy1 = max(0, y1 - pad)
+    ox2 = min(W, x2 + pad);  oy2 = min(H, y2 + pad)
+
+    outer = img_bgr[oy1:oy2, ox1:ox2]
+    if outer.size == 0:
+        return True
+
+    gray_out = cv2.cvtColor(outer, cv2.COLOR_BGR2GRAY)
+
+    # Odmaž střed (samotný text) – měříme jen okolí
+    mask = np.zeros(gray_out.shape, dtype=bool)
+    ry1, ry2 = y1 - oy1, y2 - oy1
+    rx1, rx2 = x1 - ox1, x2 - ox1
+    mask[max(0, ry1):ry2, max(0, rx1):rx2] = True
+    bg = gray_out[~mask]
+
+    if len(bg) < 20:
+        return True   # Nedostatek dat k posouzení → propusť
+
+    # Vzorované oblečení / reklamy v pozadí mají std > 55
+    # Bib materiál (papír, tkanina) má std typicky < 45
+    return float(bg.std()) < 55
+
+
+# ---------------------------------------------------------------------------
 # Hlavní funkce
 # ---------------------------------------------------------------------------
 
@@ -71,11 +137,6 @@ def detect_bibs(image_path: str, out_dir: str = None, debug: bool = False):
         scale = max_dim / max(h, w)
         img_bgr = cv2.resize(img_bgr, (int(w * scale), int(h * scale)))
         h, w = img_bgr.shape[:2]
-
-    # Výstupní adresář
-    stem = Path(image_path).stem
-    save_dir = Path(out_dir) if out_dir else Path(image_path).parent / f"{stem}.out"
-    save_dir.mkdir(parents=True, exist_ok=True)
 
     # EasyOCR – vrátí seznam (bbox, text, confidence)
     reader = _get_reader()
@@ -135,34 +196,41 @@ def detect_bibs(image_path: str, out_dir: str = None, debug: bool = False):
         if num < 10:
             continue
 
+        # Vizuální validace – odmítne čísla bez bib-like pozadí
+        if not _looks_like_bib(img_bgr, pts):
+            continue
+
         results.append(num)
         bib_detections.append((bbox, num))
 
     results = sorted(set(results))
 
-    # Ulož výřezy a anotovaný obrázek
-    final = img_bgr.copy()
-    saved = set()
+    # Anotovaný obrázek – uloží se do out_dir s původním názvem fotky
+    if out_dir and bib_detections:
+        final = img_bgr.copy()
+        for (bbox, num) in bib_detections:
+            pts_a = np.array(bbox, dtype=np.int32)
+            x1 = int(pts_a[:, 0].min())
+            y1 = int(pts_a[:, 1].min())
 
-    for idx, (bbox, num) in enumerate(bib_detections):
-        pts = np.array(bbox, dtype=np.int32)
-        x1, y1 = int(pts[:, 0].min()), int(pts[:, 1].min())
-        x2, y2 = int(pts[:, 0].max()), int(pts[:, 1].max())
+            # Polygon kolem nalezeného čísla
+            cv2.polylines(final, [pts_a], True, (0, 200, 0), 3)
 
-        # Výřez
-        roi = img_bgr[max(0, y1):y2, max(0, x1):x2]
-        if roi.size > 0 and num not in saved:
-            cv2.imwrite(str(save_dir / f"bib-{idx:05d}-{num:04d}.png"), roi)
-            saved.add(num)
+            # Label: zelený rámeček + bílý text → čitelné na jakémkoli pozadí
+            label = str(num)
+            font  = cv2.FONT_HERSHEY_SIMPLEX
+            (lw, lh), bl = cv2.getTextSize(label, font, 0.9, 2)
+            ly = max(y1 - 6, lh + 6)
+            cv2.rectangle(
+                final,
+                (x1 - 2,      ly - lh - 4),
+                (x1 + lw + 4, ly + bl),
+                (0, 180, 0), cv2.FILLED,
+            )
+            cv2.putText(final, label, (x1 + 1, ly - 1), font, 0.9, (255, 255, 255), 2)
 
-        # Anotace – polygon (zvládá i nakloněné detekce)
-        cv2.polylines(final, [pts], True, (0, 200, 0), 2)
-        cv2.putText(
-            final, str(num), (x1, max(y1 - 6, 0)),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 0), 2,
-        )
-
-    cv2.imwrite(str(save_dir / "annotated.jpg"), final)
+        out_path = Path(out_dir) / Path(image_path).name
+        cv2.imwrite(str(out_path), final)
 
     return results
 
