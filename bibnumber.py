@@ -67,12 +67,15 @@ def _get_paddleocr_reader():
             " (první spuštění stáhne modely, chvíli trvá)…",
             flush=True,
         )
-        _paddleocr_reader = PaddleOCR(
-            use_angle_cls=True,
-            lang="en",
-            use_gpu=False,
-            show_log=False,
-        )
+        # PaddleOCR 3.x používá device="cpu", starší verze use_gpu=False
+        try:
+            _paddleocr_reader = PaddleOCR(
+                use_angle_cls=True, lang="en", device="cpu", show_log=False,
+            )
+        except TypeError:
+            _paddleocr_reader = PaddleOCR(
+                use_angle_cls=True, lang="en", use_gpu=False, show_log=False,
+            )
         print("[INFO] PaddleOCR připraven.", flush=True)
     return _paddleocr_reader
 
