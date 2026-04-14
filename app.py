@@ -8,7 +8,7 @@ Spuštění:
 Funkce:
     • Výběr složky s fotkami
     • Detekce startovních čísel (bibnumber.py)
-    • Zápis čísel do EXIF metadat fotek (pole ImageDescription)
+    • Zápis čísel jako klíčová slova do IPTC metadat fotek (dataset 2:25)
     • Průběžný výpis stavu na příkazový řádek i do okna aplikace
 
 Závislosti:
@@ -18,6 +18,7 @@ Závislosti:
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import threading
+import struct
 import sys
 from pathlib import Path
 
@@ -34,34 +35,85 @@ JPEG_EXTENSIONS  = {".jpg", ".jpeg"}
 
 
 # ---------------------------------------------------------------------------
-# EXIF zápis
+# Zápis IPTC klíčových slov do JPEG
 # ---------------------------------------------------------------------------
 
-def write_bib_to_exif(image_path: Path, numbers: list) -> bool:
+def _iptc_records(keywords: list) -> bytes:
+    """Sestaví IPTC záznamy pro klíčová slova (dataset 2:25)."""
+    out = b""
+    for kw in keywords:
+        data = str(kw).encode("utf-8")[:255]
+        out += b"\x1c\x02\x19" + struct.pack(">H", len(data)) + data
+    return out
+
+
+def _app13_segment(iptc_data: bytes) -> bytes:
+    """Zabalí IPTC data do APP13 segmentu (Photoshop 3.0 / 8BIM)."""
+    # Photoshop 3.0 header + 8BIM blok pro IPTC-NAA (typ 0x0404)
+    header = b"Photoshop 3.0\x00" + b"8BIM\x04\x04\x00\x00"
+    # IPTC data + padding na sudou délku
+    padded = iptc_data + (b"\x00" if len(iptc_data) % 2 else b"")
+    content = header + struct.pack(">I", len(iptc_data)) + padded
+    return b"\xff\xed" + struct.pack(">H", len(content) + 2) + content
+
+
+def write_keywords_to_jpeg(path: Path, keywords: list) -> bool:
     """
-    Zapíše detekovaná startovní čísla do EXIF pole ImageDescription.
+    Zapíše klíčová slova do JPEG:
+      • IPTC dataset 2:25  – čitelné v Lightroomu, Capture One, exiftool, …
+      • XPKeywords (EXIF)  – čitelné v Průzkumníku Windows
+    Každé startovní číslo je samostatné klíčové slovo.
     Vrátí True při úspěchu.
-    Funguje pouze pro JPEG soubory (omezení piexif).
     """
-    if not PIEXIF_AVAILABLE:
+    if path.suffix.lower() not in JPEG_EXTENSIONS:
         return False
-    if image_path.suffix.lower() not in JPEG_EXTENSIONS:
-        return False
-
-    numbers_str = ", ".join(str(n) for n in sorted(numbers))
     try:
-        try:
-            exif_dict = piexif.load(str(image_path))
-        except Exception:
-            exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}, "thumbnail": None}
+        raw = path.read_bytes()
+        if raw[:2] != b"\xff\xd8":
+            return False
 
-        exif_dict["0th"][piexif.ImageIFD.ImageDescription] = numbers_str.encode("utf-8")
+        new_app13 = _app13_segment(_iptc_records(keywords))
 
-        exif_bytes = piexif.dump(exif_dict)
-        piexif.insert(exif_bytes, str(image_path))
+        # Projdi JPEG segmenty – odstraň staré APP13, ostatní ponech
+        out = bytearray(b"\xff\xd8")
+        pos = 2
+        while pos + 1 < len(raw):
+            if raw[pos] != 0xFF:
+                out.extend(raw[pos:])
+                break
+            marker = raw[pos:pos + 2]
+            # Standalone markery (nemají délkové pole)
+            if marker[1] in (0xD8, 0xD9, 0xD0, 0xD1, 0xD2, 0xD3,
+                             0xD4, 0xD5, 0xD6, 0xD7):
+                out.extend(marker)
+                pos += 2
+                continue
+            if pos + 4 > len(raw):
+                out.extend(raw[pos:])
+                break
+            seg_len = struct.unpack(">H", raw[pos + 2:pos + 4])[0]
+            if marker != b"\xff\xed":          # APP13 vynech, vše ostatní zachovej
+                out.extend(raw[pos:pos + 2 + seg_len])
+            pos += 2 + seg_len
+
+        # Vlož nový APP13 hned za SOI (první 2 bajty)
+        result = bytes(out[:2]) + new_app13 + bytes(out[2:])
+        path.write_bytes(result)
+
+        # XPKeywords pro Windows Průzkumník (středník jako oddělovač, UTF-16-LE)
+        if PIEXIF_AVAILABLE:
+            try:
+                exif_dict = piexif.load(str(path))
+            except Exception:
+                exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}, "thumbnail": None}
+            xp = ";".join(str(n) for n in keywords) + "\x00"
+            exif_dict["0th"][piexif.ImageIFD.XPKeywords] = xp.encode("utf-16-le")
+            piexif.insert(piexif.dump(exif_dict), str(path))
+
         return True
+
     except Exception as e:
-        print(f"  [VAROVÁNÍ] EXIF zápis selhal ({image_path.name}): {e}", flush=True)
+        print(f"  [VAROVÁNÍ] Zápis klíčových slov selhal ({path.name}): {e}", flush=True)
         return False
 
 
@@ -227,14 +279,15 @@ class App:
         self._log(f"{'='*60}", "head")
         self._log(f"  Složka:  {folder}", "head")
         self._log(f"  Fotek:   {total}", "head")
+        self._log("  IPTC:    klíčová slova (dataset 2:25)", "head")
         if PIEXIF_AVAILABLE:
-            self._log("  EXIF:    zapnuto (piexif)", "head")
+            self._log("  EXIF:    XPKeywords (Windows Průzkumník)", "head")
         else:
-            self._log("  EXIF:    vypnuto – nainstalujte: pip install piexif", "warn")
+            self._log("  EXIF XPKeywords: vypnuto – nainstalujte: pip install piexif", "warn")
         self._log(f"{'='*60}", "head")
 
         ok_count    = 0   # fotek s nalezeným číslem
-        exif_count  = 0   # fotek s úspěšným EXIF zápisem
+        kw_count    = 0   # fotek s úspěšným zápisem klíčových slov
         total_nums  = 0   # celkem nalezených čísel
 
         for i, photo in enumerate(photos, 1):
@@ -260,19 +313,17 @@ class App:
                 ok_count  += 1
                 total_nums += len(numbers)
 
-                # Zápis do EXIF metadat
+                # Zápis klíčových slov do metadat
                 if photo.suffix.lower() in JPEG_EXTENSIONS:
-                    if PIEXIF_AVAILABLE:
-                        written = write_bib_to_exif(photo, numbers)
-                        if written:
-                            self._log(f"  EXIF zapsán  →  ImageDescription = \"{nums_str}\"", "ok")
-                            exif_count += 1
-                        else:
-                            self._log("  EXIF zápis selhal.", "warn")
+                    written = write_keywords_to_jpeg(photo, numbers)
+                    if written:
+                        kw_label = "  |  ".join(str(n) for n in numbers)
+                        self._log(f"  Klíčová slova →  {kw_label}", "ok")
+                        kw_count += 1
                     else:
-                        self._log("  EXIF přeskočeno (piexif není nainstalován).", "dim")
+                        self._log("  Zápis klíčových slov selhal.", "warn")
                 else:
-                    self._log(f"  EXIF přeskočeno (formát {photo.suffix} nepodporuje EXIF).", "dim")
+                    self._log(f"  Metadata přeskočena (formát {photo.suffix} nepodporuje IPTC).", "dim")
             else:
                 self._log("  Žádná startovní čísla nebyla nalezena.", "dim")
 
@@ -280,18 +331,16 @@ class App:
 
         # Souhrn
         self._log(f"\n{'='*60}", "head")
-        self._log(f"  Zpracováno fotek:        {total}", "head")
-        self._log(f"  Fotek s čísly:           {ok_count}", "head")
-        self._log(f"  Celkem nalezených čísel: {total_nums}", "head")
-        if PIEXIF_AVAILABLE:
-            self._log(f"  EXIF zapsán do fotek:    {exif_count}", "head")
+        self._log(f"  Zpracováno fotek:              {total}", "head")
+        self._log(f"  Fotek s nalezenými čísly:      {ok_count}", "head")
+        self._log(f"  Celkem nalezených čísel:       {total_nums}", "head")
+        self._log(f"  Klíčová slova zapsána do fotek:{kw_count}", "head")
         self._log(f"{'='*60}", "head")
 
         self._set_status(
             f"Hotovo – {ok_count}/{total} fotek s čísly, "
-            f"celkem {total_nums} čísel"
-            + (f", EXIF zapsán do {exif_count} fotek" if PIEXIF_AVAILABLE else "")
-            + "."
+            f"celkem {total_nums} čísel, "
+            f"klíčová slova zapsána do {kw_count} fotek."
         )
 
 
