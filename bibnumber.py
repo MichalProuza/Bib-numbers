@@ -93,19 +93,35 @@ def _get_paddleocr_reader():
         import logging
         logging.getLogger("ppocr").setLevel(logging.ERROR)
 
-        # Zkus varianty API postupně – 3.x (device=), 2.x (use_gpu=), záložka
+        # Zkus varianty API postupně – přechází na další variantu POUZE
+        # při chybě neznámého argumentu (různé API verze). Ostatní výjimky
+        # jsou reálné chyby a propustí se dál.
+        def _is_arg_error(e: Exception) -> bool:
+            msg = str(e).lower()
+            return any(p in msg for p in [
+                "unknown argument", "unexpected keyword argument",
+                "got an unexpected", "invalid argument", "no such parameter",
+            ])
+
+        last_exc: Exception | None = None
         for kwargs in [
-            {"lang": "en", "device": "gpu" if use_gpu else "cpu"},
-            {"lang": "en", "use_gpu": use_gpu, "show_log": False},
-            {"lang": "en"},
+            {},                                                       # 3.x bez parametrů
+            {"lang": "en", "device": "gpu" if use_gpu else "cpu"},   # 3.x s device=
+            {"lang": "en", "use_gpu": use_gpu, "show_log": False},   # 2.x
+            {"lang": "en"},                                           # záložka
         ]:
             try:
                 _paddleocr_reader = PaddleOCR(**kwargs)
                 break
-            except Exception:
-                continue
+            except Exception as e:
+                if _is_arg_error(e):
+                    last_exc = e
+                    continue
+                # Reálná chyba (načítání modelu, CUDA, …) – zobraz a skonči
+                print(f"[CHYBA] PaddleOCR init selhal: {e}", flush=True)
+                sys.exit(1)
         else:
-            print("[CHYBA] Nepodařilo se inicializovat PaddleOCR.", flush=True)
+            print(f"[CHYBA] Nepodařilo se inicializovat PaddleOCR: {last_exc}", flush=True)
             sys.exit(1)
         print(f"[INFO] PaddleOCR připraven [{device_label}].", flush=True)
     return _paddleocr_reader
