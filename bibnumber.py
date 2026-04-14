@@ -49,6 +49,72 @@ def _get_reader():
 
 
 # ---------------------------------------------------------------------------
+# Vizuální validace – rozliší bib od náhodných čísel v pozadí
+# ---------------------------------------------------------------------------
+
+def _looks_like_bib(img_bgr: np.ndarray, pts: np.ndarray) -> bool:
+    """
+    Heuristicky ověří, zda detekovaný region vypadá jako startovní číslo.
+
+    Skutečný bib má dvě klíčové vlastnosti:
+      1. Vysoký kontrast číslic vůči jejich bezprostřednímu pozadí
+         (tmavé číslice na světlém papíru nebo naopak).
+      2. Relativně uniformní plocha kolem číslic – bib materiál
+         (papír/tkanina jedné barvy), na rozdíl od vzorovaného oblečení
+         nebo reklamy v pozadí.
+    """
+    x1 = int(pts[:, 0].min());  x2 = int(pts[:, 0].max())
+    y1 = int(pts[:, 1].min());  y2 = int(pts[:, 1].max())
+    bw, bh = x2 - x1, y2 - y1
+    if bw == 0 or bh == 0:
+        return False
+
+    H, W = img_bgr.shape[:2]
+
+    # 1. Kontrast uvnitř bbox ────────────────────────────────────────────────
+    inner = img_bgr[max(0, y1):min(H, y2), max(0, x1):min(W, x2)]
+    if inner.size == 0:
+        return False
+
+    gray = cv2.cvtColor(inner, cv2.COLOR_BGR2GRAY)
+    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    dark  = gray[binary == 0]
+    light = gray[binary == 255]
+    if len(dark) == 0 or len(light) == 0:
+        return False
+
+    # Rozdíl průměrů světlých a tmavých pixelů musí být alespoň 45/255
+    if float(light.mean()) - float(dark.mean()) < 45:
+        return False
+
+    # 2. Uniformita pozadí kolem bbox (bib materiál) ─────────────────────────
+    pad = max(int(min(bw, bh) * 0.6), 10)
+    ox1 = max(0, x1 - pad);  oy1 = max(0, y1 - pad)
+    ox2 = min(W, x2 + pad);  oy2 = min(H, y2 + pad)
+
+    outer = img_bgr[oy1:oy2, ox1:ox2]
+    if outer.size == 0:
+        return True
+
+    gray_out = cv2.cvtColor(outer, cv2.COLOR_BGR2GRAY)
+
+    # Odmaž střed (samotný text) – měříme jen okolí
+    mask = np.zeros(gray_out.shape, dtype=bool)
+    ry1, ry2 = y1 - oy1, y2 - oy1
+    rx1, rx2 = x1 - ox1, x2 - ox1
+    mask[max(0, ry1):ry2, max(0, rx1):rx2] = True
+    bg = gray_out[~mask]
+
+    if len(bg) < 20:
+        return True   # Nedostatek dat k posouzení → propusť
+
+    # Vzorované oblečení / reklamy v pozadí mají std > 55
+    # Bib materiál (papír, tkanina) má std typicky < 45
+    return float(bg.std()) < 55
+
+
+# ---------------------------------------------------------------------------
 # Hlavní funkce
 # ---------------------------------------------------------------------------
 
@@ -133,6 +199,10 @@ def detect_bibs(image_path: str, out_dir: str = None, debug: bool = False):
             continue
 
         if num < 10:
+            continue
+
+        # Vizuální validace – odmítne čísla bez bib-like pozadí
+        if not _looks_like_bib(img_bgr, pts):
             continue
 
         results.append(num)
