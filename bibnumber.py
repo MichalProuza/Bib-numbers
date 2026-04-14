@@ -387,7 +387,7 @@ def is_easyocr_available() -> bool:
     try:
         import easyocr  # noqa: F401
         return True
-    except ImportError:
+    except Exception:
         return False
 
 
@@ -396,7 +396,7 @@ def is_paddleocr_available() -> bool:
         from paddleocr import PaddleOCR  # noqa: F401
         import paddle  # noqa: F401
         return True
-    except ImportError:
+    except Exception:
         return False
 
 
