@@ -8,6 +8,8 @@ Race bib number detector: given a photo of runners, detect and return the race n
 
 **Recommended Python version: 3.10 or 3.11.** PyTorch (EasyOCR) and PaddlePaddle may not support Python 3.13.
 
+`README_1.md` is the legacy documentation for the old Tesseract-based implementation; `README.md` documents the current codebase.
+
 ## Installing Dependencies
 
 ```bash
